@@ -34,6 +34,16 @@ if(NOT DEFINED LLVM_MAIN_SRC_DIR)
   add_definitions(${LLVM_DEFINITIONS})
 endif()
 
+if(NOT LLVM_ENABLE_RTTI)
+  if(MSVC)
+    add_compile_options(/GR-)
+  else()
+    add_compile_options(-fno-rtti)
+  endif()
+endif()
+
+add_definitions(-DLLVM_DISABLE_ABI_BREAKING_CHECKS_ENFORCING=1)
+
 # Find Clangd headers
 if(NOT CLANGD_INCLUDE_DIRS)
   if(DEFINED ENV{CLANGD_INCLUDE_DIRS})

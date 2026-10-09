@@ -76,8 +76,9 @@ def main():
         if not msg:
             break
         if msg.get("method") == "textDocument/publishDiagnostics":
-            diags1 = msg.get("params", {}).get("diagnostics", [])
-            break
+            diags1.extend(msg.get("params", {}).get("diagnostics", []))
+            if any("syntax error" in d.get("message", "") for d in diags1):
+                break
     print(f"✓ Received {len(diags1)} diagnostics for test1 in {time.time()-t0:.3f}s:")
     for d in diags1:
         print(f"   - {d.get('range')}: {d.get('message')}")
@@ -107,8 +108,9 @@ def main():
         if not msg:
             break
         if msg.get("method") == "textDocument/publishDiagnostics":
-            diags2 = msg.get("params", {}).get("diagnostics", [])
-            break
+            diags2.extend(msg.get("params", {}).get("diagnostics", []))
+            if len(diags2) > 0:
+                break
     print(f"✓ Received {len(diags2)} diagnostics for test2 in {time.time()-t0:.3f}s:")
     for d in diags2:
         print(f"   - {d.get('range')}: {d.get('message')}")

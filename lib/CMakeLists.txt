@@ -12,6 +12,10 @@ add_library(Pseudo STATIC
 )
 target_link_libraries(Pseudo PRIVATE PseudoGrammar)
 
+if(COMMAND llvm_update_compile_flags)
+  llvm_update_compile_flags(Pseudo)
+endif()
+
 target_include_directories(Pseudo INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>

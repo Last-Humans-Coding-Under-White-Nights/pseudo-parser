@@ -10,3 +10,5 @@ dist/
 .DS_Store
 .vscode/
 compile_commands.json
+__pycache__/
+*.pyc

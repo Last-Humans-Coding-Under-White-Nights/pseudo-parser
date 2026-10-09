@@ -54,6 +54,10 @@ else()
   )
 endif()
 
+if(COMMAND llvm_update_compile_flags)
+  llvm_update_compile_flags(clangd_pseudo)
+endif()
+
 target_include_directories(clangd_pseudo PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CLANGD_INCLUDE_DIRS}"

@@ -31,6 +31,14 @@
 #include <string>
 #include <vector>
 
+namespace llvm {
+#if LLVM_ENABLE_ABI_BREAKING_CHECKS
+int EnableABIBreakingChecks = 0;
+#else
+int DisableABIBreakingChecks = 0;
+#endif
+} // namespace llvm
+
 namespace clang {
 namespace clangd {
 
