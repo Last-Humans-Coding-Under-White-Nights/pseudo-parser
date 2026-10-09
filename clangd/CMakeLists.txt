@@ -63,6 +63,7 @@ target_include_directories(clangd_pseudo PRIVATE
 )
 
 if(APPLE)
+  set_target_properties(clangd_pseudo PROPERTIES SUFFIX ".dylib")
   target_link_options(clangd_pseudo PRIVATE
     "-Wl,-flat_namespace"
     "-Wl,-undefined,dynamic_lookup"

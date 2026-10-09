@@ -163,7 +163,7 @@ jobs:
       - name: Test loading feature module into clangd (-load) and LSP diagnostics
         shell: bash
         run: |
-          PLUGIN_PATH=$(find build -name "*clangd_pseudo.dylib" | head -n 1)
+          PLUGIN_PATH=$(find build \( -name "*clangd_pseudo.dylib" -o -name "*clangd_pseudo.so" \) | head -n 1)
           echo "Found plugin at: $PLUGIN_PATH"
           LLVM_PREFIX=$(brew --prefix llvm)
           CLANGD_BIN="$LLVM_PREFIX/bin/clangd"
@@ -172,7 +172,11 @@ jobs:
 
       - name: Verify plugin dynamic dependencies
         run: |
-          PLUGIN_PATH=$(find build -name "*clangd_pseudo.dylib" | head -n 1)
+          PLUGIN_PATH=$(find build \( -name "*clangd_pseudo.dylib" -o -name "*clangd_pseudo.so" \) | head -n 1)
+          if [ -z "$PLUGIN_PATH" ]; then
+            echo "ERROR: Plugin not found!"
+            exit 1
+          fi
           echo "Inspecting Mach-O dynamic dependencies for $PLUGIN_PATH:"
           otool -L "$PLUGIN_PATH"
           if otool -L "$PLUGIN_PATH" | grep -E 'libLLVM|libclang-cpp'; then
@@ -184,7 +188,7 @@ jobs:
       - name: Package macOS artifact
         run: |
           mkdir -p dist
-          find build -name "*clangd_pseudo.dylib" -exec cp {} dist/libclangd_pseudo.dylib \;
+          find build \( -name "*clangd_pseudo.dylib" -o -name "*clangd_pseudo.so" \) -exec cp {} dist/libclangd_pseudo.dylib \;
           tar czf clangd-pseudo-macos.tar.gz -C dist .
 
       - name: Upload macOS artifact
