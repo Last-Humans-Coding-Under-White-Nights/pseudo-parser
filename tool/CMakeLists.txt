@@ -8,12 +8,6 @@ add_clang_tool(pseudo-tool
   )
 set_target_properties(pseudo-tool PROPERTIES OUTPUT_NAME "clang-pseudo")
 
-clang_target_link_libraries(pseudo-tool
-  PRIVATE
-  clangBasic
-  clangLex
-  )
-
 target_include_directories(pseudo-tool
   PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}
@@ -24,6 +18,12 @@ target_link_libraries(pseudo-tool
   Pseudo
   PseudoGrammar
   PseudoCLI
+  )
+
+clang_target_link_libraries(pseudo-tool
+  PRIVATE
+  clangLex
+  clangBasic
   )
 
 add_custom_command(OUTPUT HTMLForestResources.inc
