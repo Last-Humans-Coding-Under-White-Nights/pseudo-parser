@@ -38,21 +38,11 @@ if(WIN32 AND NOT TARGET clangd)
   endif()
 endif()
 
-if(WIN32 AND COMMAND llvm_add_library)
-  llvm_add_library(
-    clangd_pseudo
-    MODULE
-    ${PSEUDO_MODULE_SOURCES}
-    PLUGIN_TOOL clangd
-    PARTIAL_SOURCES_INTENDED
-  )
-else()
-  add_library(
-    clangd_pseudo
-    MODULE
-    ${PSEUDO_MODULE_SOURCES}
-  )
-endif()
+add_library(
+  clangd_pseudo
+  MODULE
+  ${PSEUDO_MODULE_SOURCES}
+)
 
 if(COMMAND llvm_update_compile_flags)
   llvm_update_compile_flags(clangd_pseudo)
@@ -96,8 +86,6 @@ if(WIN32)
   if(TARGET clangd)
     target_link_libraries(clangd_pseudo PRIVATE clangd)
   endif()
-endif()
-
-if(MSVC)
-  target_link_options(clangd_pseudo PRIVATE "/FORCE:MULTIPLE")
+  set_property(TARGET clangd_pseudo APPEND_STRING PROPERTY LINK_FLAGS " /FORCE:MULTIPLE")
+  target_link_options(clangd_pseudo PRIVATE "LINKER:/FORCE:MULTIPLE")
 endif()

@@ -342,12 +342,14 @@ jobs:
             -DLLVM_DIR="%CD%/llvm-build/lib/cmake/llvm" ^
             -DClang_DIR="%CD%/llvm-build/lib/cmake/clang" ^
             -DCLANGD_INCLUDE_DIRS="%CD%/llvm-project/clang-tools-extra/clangd" ^
+            -DCMAKE_SHARED_LINKER_FLAGS="/FORCE:MULTIPLE" ^
+            -DCMAKE_MODULE_LINKER_FLAGS="/FORCE:MULTIPLE" ^
             -DPSEUDO_ENABLE_TESTS=OFF
 
       - name: Build pseudo-parser feature module and tools
         shell: cmd
         run: |
-          ninja -C build clangd_pseudo pseudo-tool
+          ninja -C build -v clangd_pseudo pseudo-tool
 
       - name: Test feature module LSP diagnostics with clangd (-load)
         shell: bash
