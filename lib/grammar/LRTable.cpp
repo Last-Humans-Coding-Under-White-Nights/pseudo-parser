@@ -39,7 +39,7 @@ std::string LRTable::dumpForTests(const Grammar &G) const {
       SymbolID TokID = tokenSymbol(static_cast<tok::TokenKind>(Terminal));
       if (auto SS = getShiftState(S, TokID))
         OS.indent(4) << llvm::formatv("{0}: shift state {1}\n",
-                                      G.symbolName(TokID), SS);
+                                      G.symbolName(TokID), *SS);
     }
     for (RuleID R : getReduceRules(S)) {
       SymbolID Target = G.lookupRule(R).Target;

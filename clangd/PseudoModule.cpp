@@ -26,8 +26,10 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -36,6 +38,14 @@ namespace llvm {
 int EnableABIBreakingChecks = 0;
 #else
 int DisableABIBreakingChecks = 0;
+#endif
+
+#if defined(_WIN32)
+// Fallback definition for operator<<(raw_ostream&, std::nullopt_t) when not
+// exported from clangd.exe on Windows.
+raw_ostream &operator<<(raw_ostream &OS, std::nullopt_t) {
+  return OS << "None";
+}
 #endif
 } // namespace llvm
 
