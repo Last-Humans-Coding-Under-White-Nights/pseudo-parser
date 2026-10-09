@@ -33,7 +33,7 @@ jobs:
           echo "Matching LLVM revision: $COMMIT_HASH"
 
           git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set clang-tools-extra/clangd
+          git -C llvm-project sparse-checkout set clang-tools-extra
           if [ -n "$COMMIT_HASH" ]; then
             git -C llvm-project checkout "$COMMIT_HASH" || git -C llvm-project checkout main
           else
@@ -115,7 +115,7 @@ jobs:
           echo "Matching LLVM revision: $COMMIT_HASH"
 
           git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set clang-tools-extra/clangd
+          git -C llvm-project sparse-checkout set clang-tools-extra
           if [ -n "$COMMIT_HASH" ]; then
             git -C llvm-project checkout "$COMMIT_HASH" || git -C llvm-project checkout main
           else
@@ -170,9 +170,97 @@ jobs:
           name: clangd-pseudo-macos
           path: clangd-pseudo-macos.tar.gz
 
+  build-windows:
+    name: Build & Test (Windows x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout pseudo-parser
+        uses: actions/checkout@v4
+
+      - name: Set up Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Checkout upstream llvm-project
+        run: |
+          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party
+          git -C llvm-project checkout
+
+      - name: Cache built Clangd
+        id: cache-clangd
+        uses: actions/cache@v4
+        with:
+          path: |
+            llvm-build/bin
+            llvm-build/lib
+            llvm-build/include
+          key: clangd-win-plugins-v1
+          restore-keys: |
+            clangd-win-plugins-
+
+      - name: Build Clangd with plugin support (LLVM_ENABLE_PLUGINS=ON)
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cmake -B llvm-build -S llvm-project/llvm -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" ^
+            -DLLVM_TARGETS_TO_BUILD="X86" ^
+            -DLLVM_ENABLE_PLUGINS=ON ^
+            -DCLANG_PLUGIN_SUPPORT=ON ^
+            -DLLVM_OPTIMIZED_TABLEGEN=ON ^
+            -DLLVM_ENABLE_ASSERTIONS=OFF ^
+            -DLLVM_BUILD_TOOLS=OFF ^
+            -DLLVM_INCLUDE_TESTS=OFF ^
+            -DLLVM_INCLUDE_BENCHMARKS=OFF ^
+            -DLLVM_INCLUDE_EXAMPLES=OFF ^
+            -DCLANG_INCLUDE_TESTS=OFF ^
+            -DCLANG_ENABLE_STATIC_ANALYZER=OFF ^
+            -DCLANG_ENABLE_ARCMT=OFF ^
+            -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF ^
+            -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
+          ninja -C llvm-build clangd clang llvm-config
+
+      - name: Configure pseudo-parser
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cmake -B build -S . -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_PREFIX_PATH="%CD%/llvm-build" ^
+            -DLLVM_DIR="%CD%/llvm-build/lib/cmake/llvm" ^
+            -DClang_DIR="%CD%/llvm-build/lib/cmake/clang" ^
+            -DCLANGD_INCLUDE_DIRS="%CD%/llvm-project/clang-tools-extra/clangd" ^
+            -DPSEUDO_ENABLE_TESTS=OFF
+
+      - name: Build pseudo-parser feature module and tools
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          ninja -C build clangd_pseudo pseudo-tool
+
+      - name: Test feature module LSP diagnostics with clangd (-load)
+        shell: cmd
+        run: |
+          python test_lsp.py build/clangd/clangd_pseudo.dll llvm-build/bin/clangd.exe
+
+      - name: Package Windows artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          find build -name "*clangd_pseudo.dll" -exec cp {} dist/ \;
+          7z a clangd-pseudo-windows-x86_64.zip ./dist/*
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clangd-pseudo-windows-x86_64
+          path: clangd-pseudo-windows-x86_64.zip
+
   release:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -194,7 +282,7 @@ jobs:
             gh release create "${{ github.ref_name }}" \
               --title "${{ github.ref_name }}" \
               --generate-notes \
-              artifacts/*.tar.gz
+              artifacts/*.tar.gz artifacts/*.zip
           else
             gh release delete latest --yes --cleanup-tag || true
             gh release create latest \
@@ -202,5 +290,5 @@ jobs:
               --title "latest" \
               --notes "Automated build of clangd pseudo-parser feature module" \
               --prerelease \
-              artifacts/*.tar.gz
+              artifacts/*.tar.gz artifacts/*.zip
           fi

@@ -53,13 +53,15 @@ def main():
     print("✓ Clangd initialized with pseudo-parser module")
 
     # 2. Test syntax error diagnostics on didOpen
+    test1_path = os.path.abspath("test1.cpp").replace("\\", "/")
+    test1_uri = f"file:///{test1_path.lstrip('/')}"
     test1_code = "int f() {} {}\n"
     send_rpc(proc, {
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
         "params": {
             "textDocument": {
-                "uri": "file:///tmp/test1.cpp",
+                "uri": test1_uri,
                 "languageId": "cpp",
                 "version": 1,
                 "text": test1_code
@@ -82,13 +84,15 @@ def main():
     assert any("syntax error" in d.get("message", "") for d in diags1), "Expected syntax error diagnostic"
 
     # 3. Test preprocessor recovery diagnostics on didOpen
+    test2_path = os.path.abspath("test2.cpp").replace("\\", "/")
+    test2_uri = f"file:///{test2_path.lstrip('/')}"
     test2_code = "#ifdef X\nint f() {\n#elif Y\nint g()\n#else\nint ff(*\n#endif\n}\n"
     send_rpc(proc, {
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
         "params": {
             "textDocument": {
-                "uri": "file:///tmp/test2.cpp",
+                "uri": test2_uri,
                 "languageId": "cpp",
                 "version": 1,
                 "text": test2_code

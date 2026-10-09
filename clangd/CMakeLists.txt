@@ -50,6 +50,13 @@ elseif(UNIX)
   target_link_options(clangd_pseudo PRIVATE
     "-Wl,--unresolved-symbols=ignore-all"
   )
+elseif(WIN32)
+  if(NOT TARGET clangd)
+    find_library(CLANGD_IMPORT_LIB NAMES clangd PATHS ${LLVM_LIBRARY_DIRS} "${LLVM_DIR}/../../..")
+    if(CLANGD_IMPORT_LIB)
+      target_link_libraries(clangd_pseudo PRIVATE ${CLANGD_IMPORT_LIB})
+    endif()
+  endif()
 endif()
 
 target_link_libraries(clangd_pseudo
