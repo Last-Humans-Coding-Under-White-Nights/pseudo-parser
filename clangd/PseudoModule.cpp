@@ -276,23 +276,14 @@ void PseudoModule::initializeLSP(LSPBinder &Bind,
   if (!isEnabled())
     return;
 
-  ClientCapabilities Caps;
-  llvm::json::Path::Root Root;
-  llvm::json::Value Val = llvm::json::Object(ClientCaps);
-  fromJSON(Val, Caps, Root);
-  SupportsHierarchicalDocumentSymbol = Caps.HierarchicalDocumentSymbol;
-  if (Caps.WorkspaceSymbolKinds)
-    SupportedSymbolKinds |= *Caps.WorkspaceSymbolKinds;
-  if (Caps.CompletionItemKinds)
-    SupportedCompletionItemKinds |= *Caps.CompletionItemKinds;
-  SupportsCompletionLabelDetails = Caps.CompletionLabelDetail;
-  HoverContentFormat = Caps.HoverContentFormat;
-  SupportsReferenceContainer = Caps.ReferenceContainer;
+  SupportsHierarchicalDocumentSymbol = true;
+  SupportsCompletionLabelDetails = true;
+  HoverContentFormat = MarkupKind::PlainText;
+  SupportsReferenceContainer = true;
 
-  BaseCodeCompleteOpts.EnableSnippets = Caps.CompletionSnippets;
-  BaseCodeCompleteOpts.IncludeFixIts = Caps.CompletionFixes;
-  BaseCodeCompleteOpts.EnableInsertReplace = Caps.InsertReplace;
-  BaseCodeCompleteOpts.DocumentationFormat = Caps.CompletionDocumentationFormat;
+  BaseCodeCompleteOpts.EnableSnippets = true;
+  BaseCodeCompleteOpts.IncludeFixIts = true;
+  BaseCodeCompleteOpts.EnableInsertReplace = true;
 
   PublishDiagnostics =
       Bind.outgoingNotification("textDocument/publishDiagnostics");
