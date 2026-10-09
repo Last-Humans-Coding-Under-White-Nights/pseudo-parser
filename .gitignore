@@ -1,0 +1,12 @@
+build/
+llvm-build/
+llvm-project/
+dist/
+*.tar.gz
+*.dylib
+*.so
+*.o
+*.a
+.DS_Store
+.vscode/
+compile_commands.json

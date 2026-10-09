@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-linux:
+    name: Build & Test (Linux x86_64 - apt.llvm.org)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pseudo-parser
+        uses: actions/checkout@v4
+
+      - name: Install dependencies & apt.llvm.org main toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg lsb-release software-properties-common ninja-build cmake
+          # Add official apt.llvm.org snapshot repository (main branch)
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          UBUNTU_CODENAME=$(lsb_release -cs)
+          sudo add-apt-repository -y "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME} main"
+          sudo apt-get update
+          sudo apt-get install -y llvm-dev clang libclang-dev clang-tools clangd
+
+      - name: Checkout upstream llvm-project headers (main)
+        run: |
+          git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+
+      - name: Configure pseudo-parser
+        run: |
+          LLVM_DIR=$(llvm-config --cmakedir)
+          LLVM_PREFIX=$(llvm-config --prefix)
+          echo "Using LLVM CMake directory: $LLVM_DIR"
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
+            -DLLVM_DIR="$LLVM_DIR" \
+            -DCLANGD_INCLUDE_DIRS="$PWD/llvm-project/clang-tools-extra/clangd" \
+            -DPSEUDO_ENABLE_TESTS=ON
+
+      - name: Build pseudo-parser feature module and tools
+        run: |
+          ninja -C build clangd_pseudo pseudo-tool ClangPseudoTests
+
+      - name: Run unit tests
+        run: |
+          ./build/unittests/ClangPseudoTests
+
+      - name: Test loading feature module into official clangd (-load)
+        shell: bash
+        run: |
+          echo "int main() { return 0; }" > test_sample.cpp
+          PLUGIN_PATH=$(find build -name "libclangd_pseudo.so" -o -name "clangd_pseudo.so")
+          echo "Found plugin at: $PLUGIN_PATH"
+          CLANGD_BIN=$(which clangd)
+          echo "Using clangd at: $CLANGD_BIN"
+          $CLANGD_BIN -enable-config=0 -log=verbose -check=test_sample.cpp -load="$PLUGIN_PATH" 2>&1 | tee clangd_out.log
+          grep -i "Loaded plugin: .*clangd_pseudo" clangd_out.log
+          grep -i "Adding feature module 'pseudo-parser'" clangd_out.log
+
+      - name: Package Linux artifact
+        run: |
+          mkdir -p dist
+          find build -name "*clangd_pseudo.so" -exec cp {} dist/libclangd_pseudo.so \;
+          tar czf clangd-pseudo-linux-x86_64.tar.gz -C dist .
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clangd-pseudo-linux-x86_64
+          path: clangd-pseudo-linux-x86_64.tar.gz
+
+  build-macos:
+    name: Build & Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout pseudo-parser
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (macOS)
+        run: |
+          brew install cmake ninja llvm
+
+      - name: Checkout upstream llvm-project headers (main)
+        run: |
+          git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+
+      - name: Configure pseudo-parser
+        run: |
+          LLVM_PREFIX=$(brew --prefix llvm)
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
+            -DLLVM_DIR="$LLVM_PREFIX/lib/cmake/llvm" \
+            -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang" \
+            -DCLANGD_INCLUDE_DIRS="$PWD/llvm-project/clang-tools-extra/clangd" \
+            -DPSEUDO_ENABLE_TESTS=ON
+
+      - name: Build pseudo-parser feature module and tools
+        run: |
+          ninja -C build clangd_pseudo pseudo-tool ClangPseudoTests
+
+      - name: Run unit tests
+        run: |
+          ./build/unittests/ClangPseudoTests
+
+      - name: Test loading feature module into clangd (-load)
+        shell: bash
+        run: |
+          echo "int main() { return 0; }" > test_sample.cpp
+          PLUGIN_PATH=$(find build -name "*clangd_pseudo.dylib")
+          echo "Found plugin at: $PLUGIN_PATH"
+          LLVM_PREFIX=$(brew --prefix llvm)
+          "$LLVM_PREFIX/bin/clangd" -enable-config=0 -log=verbose -check=test_sample.cpp -load="$PLUGIN_PATH" 2>&1 | tee clangd_out.log || true
+
+      - name: Package macOS artifact
+        run: |
+          mkdir -p dist
+          find build -name "*clangd_pseudo.dylib" -exec cp {} dist/libclangd_pseudo.dylib \;
+          tar czf clangd-pseudo-macos.tar.gz -C dist .
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clangd-pseudo-macos
+          path: clangd-pseudo-macos.tar.gz
+
+  release:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Release on GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            gh release create "${{ github.ref_name }}" \
+              --title "${{ github.ref_name }}" \
+              --generate-notes \
+              artifacts/*.tar.gz
+          else
+            gh release delete latest --yes --cleanup-tag || true
+            gh release create latest \
+              --target "${{ github.sha }}" \
+              --title "latest" \
+              --notes "Automated build of clangd pseudo-parser feature module" \
+              --prerelease \
+              artifacts/*.tar.gz
+          fi
