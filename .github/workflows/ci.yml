@@ -10,54 +10,80 @@ on:
 
 jobs:
   build-linux:
-    name: Build & Test (Linux x86_64 - apt.llvm.org)
+    name: Build & Test (Linux x86_64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout pseudo-parser
         uses: actions/checkout@v4
 
-      - name: Install dependencies & apt.llvm.org main toolchain
+      - name: Install dependencies (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget gnupg lsb-release software-properties-common ninja-build cmake git
-          # Run official llvm.sh to install main development toolchain (version 24)
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 24 all
+          sudo apt-get install -y cmake ninja-build ccache git
 
-      - name: Checkout upstream llvm-project headers (matching clangd revision)
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-clangd-ccache
+          max-size: 2G
+
+      - name: Restore Clangd cache
+        id: cache-clangd
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            llvm-build
+            llvm-project
+          key: clangd-linux-x86_64-v1
+          restore-keys: |
+            clangd-linux-x86_64-
+
+      - name: Checkout upstream llvm-project
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
         run: |
-          CLANGD_BIN=$(which clangd-24 || which clangd)
-          echo "Inspecting version from $CLANGD_BIN:"
-          $CLANGD_BIN --version
-          COMMIT_HASH=$($CLANGD_BIN --version | grep -oE '[0-9a-f]{40}|[0-9a-f]{12}' | head -n 1 || true)
-          echo "Matching LLVM revision: $COMMIT_HASH"
+          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
+          git -C llvm-project checkout
 
-          git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set clang-tools-extra
-          if [ -n "$COMMIT_HASH" ]; then
-            git -C llvm-project checkout "$COMMIT_HASH" || git -C llvm-project checkout main
-          else
-            git -C llvm-project checkout main
-          fi
+      - name: Build Clangd from main
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        run: |
+          cmake -B llvm-build -S llvm-project/llvm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
+            -DLLVM_TARGETS_TO_BUILD="X86" \
+            -DCLANG_PLUGIN_SUPPORT=ON \
+            -DLLVM_ENABLE_PLUGINS=ON \
+            -DLLVM_CCACHE_BUILD=ON \
+            -DLLVM_OPTIMIZED_TABLEGEN=ON \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_BUILD_TOOLS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DCLANG_INCLUDE_TESTS=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF \
+            -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
+          ninja -C llvm-build clangd
+
+      - name: Save Clangd cache
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            llvm-build
+            llvm-project
+          key: clangd-linux-x86_64-v1
 
       - name: Configure pseudo-parser
         run: |
-          LLVM_CONFIG="llvm-config-24"
-          if ! command -v $LLVM_CONFIG &>/dev/null; then
-            LLVM_CONFIG="llvm-config"
-          fi
-          LLVM_PREFIX=$($LLVM_CONFIG --prefix)
-          LLVM_DIR=$($LLVM_CONFIG --cmakedir)
-          echo "Using LLVM prefix: $LLVM_PREFIX"
-          echo "Using LLVM CMake dir: $LLVM_DIR"
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=clang-24 \
-            -DCMAKE_CXX_COMPILER=clang++-24 \
-            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
-            -DLLVM_DIR="$LLVM_DIR" \
-            -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang" \
+            -DCMAKE_PREFIX_PATH="$PWD/llvm-build" \
+            -DLLVM_DIR="$PWD/llvm-build/lib/cmake/llvm" \
+            -DClang_DIR="$PWD/llvm-build/lib/cmake/clang" \
             -DCLANGD_INCLUDE_DIRS="$PWD/llvm-project/clang-tools-extra/clangd" \
             -DPSEUDO_ENABLE_TESTS=ON
 
@@ -74,12 +100,13 @@ jobs:
             echo "Skipping ClangPseudoTests (LLVMTestingSupport not in distribution package)"
           fi
 
-      - name: Test loading feature module into official clangd (-load) and LSP diagnostics
+      - name: Test loading feature module into clangd (-load) and LSP diagnostics
         shell: bash
         run: |
           PLUGIN_PATH=$(find build -name "*clangd_pseudo.so" | head -n 1)
           echo "Found plugin at: $PLUGIN_PATH"
-          CLANGD_BIN=$(which clangd-24 || which clangd)
+          CLANGD_BIN="$PWD/llvm-build/bin/clangd"
+          chmod +x "$CLANGD_BIN" || true
           echo "Using clangd at: $CLANGD_BIN"
           python3 test_lsp.py "$PLUGIN_PATH" "$CLANGD_BIN"
 
@@ -115,7 +142,13 @@ jobs:
 
       - name: Install dependencies (macOS)
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake ninja || true
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake ninja ccache || true
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos-clangd-ccache
+          max-size: 2G
 
       - name: Restore Clangd cache
         id: cache-clangd
@@ -144,6 +177,7 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD="AArch64" \
             -DCLANG_PLUGIN_SUPPORT=ON \
             -DLLVM_ENABLE_PLUGINS=ON \
+            -DLLVM_CCACHE_BUILD=ON \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
             -DLLVM_ENABLE_ASSERTIONS=OFF \
             -DLLVM_BUILD_TOOLS=OFF \
