@@ -1,6 +1,8 @@
-set(LLVM_LINK_COMPONENTS
-  Support
-  )
+if(WIN32)
+  set(LLVM_LINK_COMPONENTS
+    Support
+    )
+endif()
 
 add_clang_library(PseudoCXX
   CXX.cpp
@@ -13,7 +15,9 @@ add_clang_library(PseudoCXX
   PseudoGrammar
   )
 
-clang_target_link_libraries(PseudoCXX
-  PRIVATE
-  clangBasic
-  )
+if(WIN32)
+  clang_target_link_libraries(PseudoCXX
+    PRIVATE
+    clangBasic
+    )
+endif()
