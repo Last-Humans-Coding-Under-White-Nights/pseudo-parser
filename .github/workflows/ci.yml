@@ -125,6 +125,7 @@ jobs:
         run: |
           mkdir -p dist
           find build -name "*clangd_pseudo.so" -exec cp {} dist/libclangd_pseudo.so \;
+          cp llvm-build/bin/clangd dist/clangd
           tar czf clangd-pseudo-linux-x86_64.tar.gz -C dist .
 
       - name: Upload Linux artifact
@@ -252,6 +253,7 @@ jobs:
         run: |
           mkdir -p dist
           find build \( -name "*clangd_pseudo.dylib" -o -name "*clangd_pseudo.so" \) -exec cp {} dist/libclangd_pseudo.dylib \;
+          cp llvm-build/bin/clangd dist/clangd
           tar czf clangd-pseudo-macos.tar.gz -C dist .
 
       - name: Upload macOS artifact
@@ -348,6 +350,7 @@ jobs:
         run: |
           mkdir -p dist
           find build -name "*clangd_pseudo.dll" -exec cp {} dist/ \;
+          cp llvm-build/bin/clangd.exe dist/clangd.exe
           7z a clangd-pseudo-windows-x86_64.zip ./dist/*
 
       - name: Upload Windows artifact
