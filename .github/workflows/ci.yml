@@ -264,7 +264,6 @@ jobs:
 
   build-windows:
     name: Build & Test (Windows x86_64)
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[windows]')
     runs-on: windows-latest
     steps:
       - name: Checkout pseudo-parser
@@ -276,20 +275,29 @@ jobs:
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Checkout upstream llvm-project
-        run: |
-          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
-          git -C llvm-project checkout
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: windows-clangd-ccache
+          max-size: 2G
 
       - name: Restore Clangd cache
         id: cache-clangd
         uses: actions/cache/restore@v4
         with:
-          path: llvm-build
-          key: clangd-win-plugins-v3
+          path: |
+            llvm-build
+            llvm-project
+          key: clangd-windows-x86_64-v1
           restore-keys: |
-            clangd-win-plugins-
+            clangd-windows-x86_64-
+
+      - name: Checkout upstream llvm-project
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
+          git -C llvm-project checkout
 
       - name: Build Clangd with plugin symbol exports (LLVM_EXPORT_SYMBOLS_FOR_PLUGINS=ON)
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -302,6 +310,7 @@ jobs:
             -DLLVM_ENABLE_PLUGINS=OFF ^
             -DLLVM_EXPORT_SYMBOLS_FOR_PLUGINS=ON ^
             -DCLANG_PLUGIN_SUPPORT=ON ^
+            -DLLVM_CCACHE_BUILD=ON ^
             -DLLVM_OPTIMIZED_TABLEGEN=ON ^
             -DLLVM_ENABLE_ASSERTIONS=OFF ^
             -DLLVM_BUILD_TOOLS=OFF ^
@@ -319,8 +328,10 @@ jobs:
         if: steps.cache-clangd.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: llvm-build
-          key: clangd-win-plugins-v3
+          path: |
+            llvm-build
+            llvm-project
+          key: clangd-windows-x86_64-v1
 
       - name: Configure pseudo-parser
         shell: cmd
