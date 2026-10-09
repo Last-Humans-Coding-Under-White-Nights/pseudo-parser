@@ -28,8 +28,10 @@ def main():
         print("Usage: test_lsp.py <path-to-clangd_pseudo-plugin> [path-to-clangd]")
         sys.exit(1)
 
-    plugin_path = sys.argv[1]
+    plugin_path = os.path.abspath(sys.argv[1])
     clangd_bin = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("CLANGD_BIN", "clangd")
+    if os.path.exists(clangd_bin):
+        clangd_bin = os.path.abspath(clangd_bin)
 
     # Check if clangd supports -load
     help_out = subprocess.run([clangd_bin, "--help"], capture_output=True, text=True)

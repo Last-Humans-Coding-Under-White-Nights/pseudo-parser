@@ -96,9 +96,8 @@ if(WIN32)
   if(TARGET clangd)
     target_link_libraries(clangd_pseudo PRIVATE clangd)
   endif()
-  clang_target_link_libraries(clangd_pseudo
-    PRIVATE
-    clangBasic
-    clangLex
-  )
+endif()
+
+if(MSVC)
+  target_link_options(clangd_pseudo PRIVATE "/FORCE:MULTIPLE")
 endif()

@@ -58,6 +58,18 @@ extern const void *_ZTIN4llvm13ErrorInfoBaseE[2] = {
 namespace clang {
 namespace clangd {
 
+#if defined(_WIN32)
+// Fallback definitions for static member variables in clang::clangd that are not
+// exported from clangd.exe on Windows. In LLVM's Windows export script
+// (extract_symbols.py), only variables in llvm:: are exported; variables in
+// clang:: are omitted. Supplying local definitions within the module DLL
+// satisfies the link requirements without conflicting with the host executable.
+__declspec(selectany) char LSPError::ID = 0;
+__declspec(selectany) const CodeCompleteOptions::CodeCompletionRankingModel
+    CodeCompleteOptions::DefaultRankingModel =
+        CodeCompleteOptions::DecisionForest;
+#endif
+
 namespace {
 
 static Location *getToggle(const TextDocumentPositionParams &Point,

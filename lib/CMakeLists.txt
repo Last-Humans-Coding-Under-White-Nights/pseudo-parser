@@ -21,10 +21,3 @@ target_include_directories(Pseudo INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>
 )
 
-if(WIN32)
-  clang_target_link_libraries(Pseudo
-    PRIVATE
-    clangBasic
-    clangLex
-    )
-endif()
