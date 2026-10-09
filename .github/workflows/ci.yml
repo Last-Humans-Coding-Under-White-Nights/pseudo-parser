@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   build-linux:
@@ -81,6 +82,17 @@ jobs:
           CLANGD_BIN=$(which clangd-24 || which clangd)
           echo "Using clangd at: $CLANGD_BIN"
           python3 test_lsp.py "$PLUGIN_PATH" "$CLANGD_BIN"
+
+      - name: Verify plugin dynamic dependencies
+        run: |
+          PLUGIN_PATH=$(find build -name "*clangd_pseudo.so" | head -n 1)
+          echo "Inspecting ELF dynamic dependencies for $PLUGIN_PATH:"
+          readelf -d "$PLUGIN_PATH" | grep NEEDED || true
+          if readelf -d "$PLUGIN_PATH" | grep NEEDED | grep -E 'libLLVM|libclang-cpp'; then
+            echo "ERROR: Plugin contains unwanted shared library dependency!"
+            exit 1
+          fi
+          echo "✓ Plugin has no DT_NEEDED dependencies on libLLVM or libclang-cpp"
 
       - name: Package Linux artifact
         run: |
@@ -158,6 +170,17 @@ jobs:
           echo "Using clangd at: $CLANGD_BIN"
           python3 test_lsp.py "$PLUGIN_PATH" "$CLANGD_BIN"
 
+      - name: Verify plugin dynamic dependencies
+        run: |
+          PLUGIN_PATH=$(find build -name "*clangd_pseudo.dylib" | head -n 1)
+          echo "Inspecting Mach-O dynamic dependencies for $PLUGIN_PATH:"
+          otool -L "$PLUGIN_PATH"
+          if otool -L "$PLUGIN_PATH" | grep -E 'libLLVM|libclang-cpp'; then
+            echo "ERROR: Plugin contains unwanted shared library dependency!"
+            exit 1
+          fi
+          echo "✓ Plugin has no dynamic dependencies on libLLVM or libclang-cpp"
+
       - name: Package macOS artifact
         run: |
           mkdir -p dist
@@ -172,6 +195,7 @@ jobs:
 
   build-windows:
     name: Build & Test (Windows x86_64)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[windows]')
     runs-on: windows-latest
     steps:
       - name: Checkout pseudo-parser
@@ -266,7 +290,11 @@ jobs:
           path: clangd-pseudo-windows-x86_64.zip
 
   release:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) &&
+      !cancelled() &&
+      !contains(needs.*.result, 'failure')
     needs: [build-linux, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
@@ -285,11 +313,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
+          shopt -s nullglob
+          RELEASE_FILES=(artifacts/*.tar.gz artifacts/*.zip)
+          if [ ${#RELEASE_FILES[@]} -eq 0 ]; then
+            echo "No artifacts to release!"
+            exit 1
+          fi
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             gh release create "${{ github.ref_name }}" \
               --title "${{ github.ref_name }}" \
               --generate-notes \
-              artifacts/*.tar.gz artifacts/*.zip
+              "${RELEASE_FILES[@]}"
           else
             gh release delete latest --yes --cleanup-tag || true
             gh release create latest \
@@ -297,5 +331,5 @@ jobs:
               --title "latest" \
               --notes "Automated build of clangd pseudo-parser feature module" \
               --prerelease \
-              artifacts/*.tar.gz artifacts/*.zip
+              "${RELEASE_FILES[@]}"
           fi

@@ -1,19 +1,8 @@
-if(WIN32)
-  set(LLVM_LINK_COMPONENTS
-    Support
-    )
-endif()
-
-add_clang_library(PseudoCXX
+add_library(PseudoCXX STATIC
   CXX.cpp
-
-  DEPENDS
-  cxx_gen
-
-  LINK_LIBS
-  Pseudo
-  PseudoGrammar
-  )
+)
+add_dependencies(PseudoCXX cxx_gen)
+target_link_libraries(PseudoCXX PRIVATE Pseudo PseudoGrammar)
 
 if(WIN32)
   clang_target_link_libraries(PseudoCXX

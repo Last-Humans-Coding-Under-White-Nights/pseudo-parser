@@ -38,14 +38,13 @@ if(WIN32 AND NOT TARGET clangd)
   endif()
 endif()
 
-if(COMMAND llvm_add_library)
+if(WIN32 AND COMMAND llvm_add_library)
   llvm_add_library(
     clangd_pseudo
     MODULE
     ${PSEUDO_MODULE_SOURCES}
     PLUGIN_TOOL clangd
     PARTIAL_SOURCES_INTENDED
-    DISABLE_LLVM_LINK_LLVM_DYLIB
   )
 else()
   add_library(
@@ -71,6 +70,7 @@ if(APPLE)
 elseif(UNIX)
   target_link_options(clangd_pseudo PRIVATE
     "-Wl,--unresolved-symbols=ignore-all"
+    "-Wl,--as-needed"
   )
 endif()
 
