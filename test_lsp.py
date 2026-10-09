@@ -5,6 +5,11 @@ import json
 import subprocess
 import time
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 def send_rpc(p, obj):
     msg = json.dumps(obj)
     header = f"Content-Length: {len(msg)}\r\n\r\n"
@@ -67,7 +72,7 @@ def main():
         print(f"clangd stderr:\n{stderr_rem}")
     assert init_resp and init_resp.get("id") == 1, f"Initialize failed: {init_resp}"
     send_rpc(proc, {"jsonrpc": "2.0", "method": "initialized", "params": {}})
-    print("✓ Clangd initialized with pseudo-parser module")
+    print("[OK] Clangd initialized with pseudo-parser module")
 
     # 2. Test syntax error diagnostics on didOpen
     test1_path = os.path.abspath("test1.cpp").replace("\\", "/")
@@ -96,7 +101,7 @@ def main():
             diags1.extend(msg.get("params", {}).get("diagnostics", []))
             if any("syntax error" in d.get("message", "") for d in diags1):
                 break
-    print(f"✓ Received {len(diags1)} diagnostics for test1 in {time.time()-t0:.3f}s:")
+    print(f"[OK] Received {len(diags1)} diagnostics for test1 in {time.time()-t0:.3f}s:")
     for d in diags1:
         print(f"   - {d.get('range')}: {d.get('message')}")
     assert any("syntax error" in d.get("message", "") for d in diags1), "Expected syntax error diagnostic"
@@ -128,7 +133,7 @@ def main():
             diags2.extend(msg.get("params", {}).get("diagnostics", []))
             if len(diags2) > 0:
                 break
-    print(f"✓ Received {len(diags2)} diagnostics for test2 in {time.time()-t0:.3f}s:")
+    print(f"[OK] Received {len(diags2)} diagnostics for test2 in {time.time()-t0:.3f}s:")
     for d in diags2:
         print(f"   - {d.get('range')}: {d.get('message')}")
     assert len(diags2) > 0, "Expected diagnostics for unbalanced conditional code"
@@ -138,7 +143,7 @@ def main():
     read_rpc(proc)
     send_rpc(proc, {"jsonrpc": "2.0", "method": "exit", "params": {}})
     proc.wait(timeout=5)
-    print(f"✓ Clangd cleanly terminated with exit code {proc.returncode}")
+    print(f"[OK] Clangd cleanly terminated with exit code {proc.returncode}")
     assert proc.returncode == 0, f"Expected 0 exit code, got {proc.returncode}"
     print("All LSP diagnostics tests passed!")
     return 0

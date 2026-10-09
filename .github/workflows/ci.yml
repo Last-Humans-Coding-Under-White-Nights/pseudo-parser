@@ -358,7 +358,7 @@ jobs:
           echo "Found plugin at: $PLUGIN_PATH"
           export PATH="$PWD/llvm-build/bin:$PATH"
           cp "$PLUGIN_PATH" llvm-build/bin/
-          python3 test_lsp.py "$PLUGIN_PATH" llvm-build/bin/clangd.exe
+          PYTHONIOENCODING=utf-8 python3 test_lsp.py "$PLUGIN_PATH" llvm-build/bin/clangd.exe
 
       - name: Package Windows artifact
         shell: bash
