@@ -39,6 +39,22 @@ int DisableABIBreakingChecks = 0;
 #endif
 } // namespace llvm
 
+#if !defined(_WIN32)
+// Fallback symbol definition for typeinfo of llvm::ErrorInfoBase.
+// This prevents dlopen failure when the host clangd was built with -fno-rtti
+// or when external toolchains have mismatched RTTI settings.
+extern "C" {
+__attribute__((weak, visibility("default")))
+extern const char _ZTSN4llvm13ErrorInfoBaseE[] = "N4llvm13ErrorInfoBaseE";
+
+__attribute__((weak, visibility("default")))
+extern const void *_ZTIN4llvm13ErrorInfoBaseE[2] = {
+    (const void *)0,
+    (const void *)_ZTSN4llvm13ErrorInfoBaseE
+};
+}
+#endif
+
 namespace clang {
 namespace clangd {
 

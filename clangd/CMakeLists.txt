@@ -58,6 +58,12 @@ if(COMMAND llvm_update_compile_flags)
   llvm_update_compile_flags(clangd_pseudo)
 endif()
 
+if(MSVC)
+  target_compile_options(clangd_pseudo PRIVATE /GR-)
+else()
+  target_compile_options(clangd_pseudo PRIVATE -fno-rtti)
+endif()
+
 target_include_directories(clangd_pseudo PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CLANGD_INCLUDE_DIRS}"
