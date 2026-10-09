@@ -12,15 +12,19 @@ def send_rpc(p, obj):
     p.stdin.flush()
 
 def read_rpc(p):
-    line = p.stdout.readline().decode("utf-8")
+    line = p.stdout.readline().decode("utf-8", errors="replace")
     if not line:
         return None
     length = 0
-    while line != "\r\n":
+    while line.strip() != "":
         if line.startswith("Content-Length:"):
             length = int(line.split(":")[1].strip())
-        line = p.stdout.readline().decode("utf-8")
-    content = p.stdout.read(length).decode("utf-8")
+        line = p.stdout.readline().decode("utf-8", errors="replace")
+        if not line:
+            return None
+    if length == 0:
+        return None
+    content = p.stdout.read(length).decode("utf-8", errors="replace")
     return json.loads(content)
 
 def main():
@@ -39,17 +43,28 @@ def main():
         print(f"clangd at '{clangd_bin}' does not support -load (dynamic plugin support was added on Oct 8, 2026). Skipping live LSP plugin test.")
         return 0
 
+    env = os.environ.copy()
+    clangd_dir = os.path.dirname(os.path.abspath(clangd_bin))
+    env["PATH"] = clangd_dir + os.pathsep + env.get("PATH", "")
+
     print(f"Testing clangd ({clangd_bin}) with plugin ({plugin_path})...")
     proc = subprocess.Popen([
         clangd_bin,
         "-enable-config=0",
-        "-log=error",
+        "-log=verbose",
         f"-load={plugin_path}"
-    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
 
     # 1. Initialize
     send_rpc(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}})
     init_resp = read_rpc(proc)
+    if not init_resp:
+        proc.poll()
+        stdout_rem = proc.stdout.read().decode("utf-8", errors="replace")
+        stderr_rem = proc.stderr.read().decode("utf-8", errors="replace")
+        print(f"ERROR: clangd failed to initialize. Exit code: {proc.returncode}")
+        print(f"clangd stdout:\n{stdout_rem}")
+        print(f"clangd stderr:\n{stderr_rem}")
     assert init_resp and init_resp.get("id") == 1, f"Initialize failed: {init_resp}"
     send_rpc(proc, {"jsonrpc": "2.0", "method": "initialized", "params": {}})
     print("✓ Clangd initialized with pseudo-parser module")
