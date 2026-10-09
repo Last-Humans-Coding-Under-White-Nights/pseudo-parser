@@ -1,6 +1,8 @@
-set(LLVM_LINK_COMPONENTS
-  Support
-)
+if(WIN32)
+  set(LLVM_LINK_COMPONENTS
+    Support
+  )
+endif()
 
 set(PSEUDO_MODULE_SOURCES
   PseudoModule.cpp
@@ -69,10 +71,6 @@ elseif(UNIX)
   target_link_options(clangd_pseudo PRIVATE
     "-Wl,--unresolved-symbols=ignore-all"
   )
-elseif(WIN32)
-  if(TARGET clangd)
-    target_link_libraries(clangd_pseudo PRIVATE clangd)
-  endif()
 endif()
 
 target_link_libraries(clangd_pseudo
@@ -80,6 +78,15 @@ target_link_libraries(clangd_pseudo
   Pseudo
   PseudoCXX
   PseudoGrammar
-  clangBasic
-  clangLex
 )
+
+if(WIN32)
+  if(TARGET clangd)
+    target_link_libraries(clangd_pseudo PRIVATE clangd)
+  endif()
+  clang_target_link_libraries(clangd_pseudo
+    PRIVATE
+    clangBasic
+    clangLex
+  )
+endif()

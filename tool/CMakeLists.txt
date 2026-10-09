@@ -11,6 +11,7 @@ set_target_properties(pseudo-tool PROPERTIES OUTPUT_NAME "clang-pseudo")
 clang_target_link_libraries(pseudo-tool
   PRIVATE
   clangBasic
+  clangLex
   )
 
 target_include_directories(pseudo-tool
