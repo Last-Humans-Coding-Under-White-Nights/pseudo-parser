@@ -9,6 +9,10 @@ if(NOT TARGET LibEdit::LibEdit)
   add_library(LibEdit::LibEdit INTERFACE IMPORTED)
 endif()
 
+if(NOT TARGET clang-resource-headers)
+  add_custom_target(clang-resource-headers)
+endif()
+
 # Find LLVM and Clang if not built in-tree
 if(NOT DEFINED LLVM_MAIN_SRC_DIR)
   find_package(LLVM REQUIRED CONFIG)

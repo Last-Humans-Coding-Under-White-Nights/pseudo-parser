@@ -18,13 +18,11 @@ jobs:
       - name: Install dependencies & apt.llvm.org main toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget gnupg lsb-release software-properties-common ninja-build cmake
-          # Add official apt.llvm.org snapshot repository (main branch)
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          UBUNTU_CODENAME=$(lsb_release -cs)
-          sudo add-apt-repository -y "deb http://apt.llvm.org/${UBUNTU_CODENAME}/ llvm-toolchain-${UBUNTU_CODENAME} main"
-          sudo apt-get update
-          sudo apt-get install -y llvm-dev clang libclang-dev clang-tools clangd
+          sudo apt-get install -y wget gnupg lsb-release software-properties-common ninja-build cmake git
+          # Run official llvm.sh to install main development toolchain (version 24)
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 24 all
 
       - name: Checkout upstream llvm-project headers (main)
         run: |
@@ -32,13 +30,21 @@ jobs:
 
       - name: Configure pseudo-parser
         run: |
-          LLVM_DIR=$(llvm-config --cmakedir)
-          LLVM_PREFIX=$(llvm-config --prefix)
-          echo "Using LLVM CMake directory: $LLVM_DIR"
+          LLVM_CONFIG="llvm-config-24"
+          if ! command -v $LLVM_CONFIG &>/dev/null; then
+            LLVM_CONFIG="llvm-config"
+          fi
+          LLVM_PREFIX=$($LLVM_CONFIG --prefix)
+          LLVM_DIR=$($LLVM_CONFIG --cmakedir)
+          echo "Using LLVM prefix: $LLVM_PREFIX"
+          echo "Using LLVM CMake dir: $LLVM_DIR"
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-24 \
+            -DCMAKE_CXX_COMPILER=clang++-24 \
             -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
             -DLLVM_DIR="$LLVM_DIR" \
+            -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang" \
             -DCLANGD_INCLUDE_DIRS="$PWD/llvm-project/clang-tools-extra/clangd" \
             -DPSEUDO_ENABLE_TESTS=ON
 
@@ -54,13 +60,19 @@ jobs:
         shell: bash
         run: |
           echo "int main() { return 0; }" > test_sample.cpp
-          PLUGIN_PATH=$(find build -name "libclangd_pseudo.so" -o -name "clangd_pseudo.so")
+          PLUGIN_PATH=$(find build -name "*clangd_pseudo.so" | head -n 1)
           echo "Found plugin at: $PLUGIN_PATH"
-          CLANGD_BIN=$(which clangd)
+          CLANGD_BIN=$(which clangd-24 || which clangd)
           echo "Using clangd at: $CLANGD_BIN"
-          $CLANGD_BIN -enable-config=0 -log=verbose -check=test_sample.cpp -load="$PLUGIN_PATH" 2>&1 | tee clangd_out.log
-          grep -i "Loaded plugin: .*clangd_pseudo" clangd_out.log
-          grep -i "Adding feature module 'pseudo-parser'" clangd_out.log
+          $CLANGD_BIN --version
+          if $CLANGD_BIN --help | grep -q -- "-load"; then
+            $CLANGD_BIN -enable-config=0 -log=verbose -check=test_sample.cpp -load="$PLUGIN_PATH" 2>&1 | tee clangd_out.log
+            grep -i "Loaded plugin: .*clangd_pseudo" clangd_out.log
+            grep -i "Adding feature module 'pseudo-parser'" clangd_out.log
+          else
+            echo "Installed clangd does not support -load yet; verifying library symbols..."
+            nm -D "$PLUGIN_PATH" | grep -i "PseudoModule"
+          fi
 
       - name: Package Linux artifact
         run: |
@@ -94,6 +106,8 @@ jobs:
           LLVM_PREFIX=$(brew --prefix llvm)
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$LLVM_PREFIX/bin/clang" \
+            -DCMAKE_CXX_COMPILER="$LLVM_PREFIX/bin/clang++" \
             -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
             -DLLVM_DIR="$LLVM_PREFIX/lib/cmake/llvm" \
             -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang" \
@@ -112,10 +126,19 @@ jobs:
         shell: bash
         run: |
           echo "int main() { return 0; }" > test_sample.cpp
-          PLUGIN_PATH=$(find build -name "*clangd_pseudo.dylib")
+          PLUGIN_PATH=$(find build -name "*clangd_pseudo.dylib" | head -n 1)
           echo "Found plugin at: $PLUGIN_PATH"
           LLVM_PREFIX=$(brew --prefix llvm)
-          "$LLVM_PREFIX/bin/clangd" -enable-config=0 -log=verbose -check=test_sample.cpp -load="$PLUGIN_PATH" 2>&1 | tee clangd_out.log || true
+          CLANGD_BIN="$LLVM_PREFIX/bin/clangd"
+          "$CLANGD_BIN" --version
+          if "$CLANGD_BIN" --help | grep -q -- "-load"; then
+            "$CLANGD_BIN" -enable-config=0 -log=verbose -check=test_sample.cpp -load="$PLUGIN_PATH" 2>&1 | tee clangd_out.log
+            grep -i "Loaded plugin: .*clangd_pseudo" clangd_out.log
+            grep -i "Adding feature module 'pseudo-parser'" clangd_out.log
+          else
+            echo "Installed clangd does not support -load yet; verifying library symbols..."
+            nm -gU "$PLUGIN_PATH" | grep -i "PseudoModule"
+          fi
 
       - name: Package macOS artifact
         run: |
