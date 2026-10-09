@@ -107,7 +107,7 @@ jobs:
           path: clangd-pseudo-linux-x86_64.tar.gz
 
   build-macos:
-    name: Build & Test (macOS)
+    name: Build & Test (macOS ARM64)
     runs-on: macos-latest
     steps:
       - name: Checkout pseudo-parser
@@ -115,35 +115,64 @@ jobs:
 
       - name: Install dependencies (macOS)
         run: |
-          brew install cmake ninja llvm
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake ninja || true
 
-      - name: Checkout upstream llvm-project headers (matching clangd revision)
+      - name: Restore Clangd cache
+        id: cache-clangd
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            llvm-build
+            llvm-project
+          key: clangd-macos-arm64-v1
+          restore-keys: |
+            clangd-macos-arm64-
+
+      - name: Checkout upstream llvm-project
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
         run: |
-          LLVM_PREFIX=$(brew --prefix llvm)
-          CLANGD_BIN="$LLVM_PREFIX/bin/clangd"
-          echo "Inspecting version from $CLANGD_BIN:"
-          "$CLANGD_BIN" --version
-          COMMIT_HASH=$("$CLANGD_BIN" --version | grep -oE '[0-9a-f]{40}|[0-9a-f]{12}' | head -n 1 || true)
-          echo "Matching LLVM revision: $COMMIT_HASH"
+          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
+          git -C llvm-project checkout
 
-          git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set clang-tools-extra
-          if [ -n "$COMMIT_HASH" ]; then
-            git -C llvm-project checkout "$COMMIT_HASH" || git -C llvm-project checkout main
-          else
-            git -C llvm-project checkout main
-          fi
+      - name: Build Clangd from main
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        run: |
+          cmake -B llvm-build -S llvm-project/llvm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64" \
+            -DCLANG_PLUGIN_SUPPORT=ON \
+            -DLLVM_ENABLE_PLUGINS=ON \
+            -DLLVM_OPTIMIZED_TABLEGEN=ON \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DLLVM_BUILD_TOOLS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DCLANG_INCLUDE_TESTS=OFF \
+            -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
+            -DCLANG_ENABLE_ARCMT=OFF \
+            -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF \
+            -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
+          ninja -C llvm-build clangd
+
+      - name: Save Clangd cache
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            llvm-build
+            llvm-project
+          key: clangd-macos-arm64-v1
 
       - name: Configure pseudo-parser
         run: |
-          LLVM_PREFIX=$(brew --prefix llvm)
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="$LLVM_PREFIX/bin/clang" \
-            -DCMAKE_CXX_COMPILER="$LLVM_PREFIX/bin/clang++" \
-            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
-            -DLLVM_DIR="$LLVM_PREFIX/lib/cmake/llvm" \
-            -DClang_DIR="$LLVM_PREFIX/lib/cmake/clang" \
+            -DCMAKE_PREFIX_PATH="$PWD/llvm-build" \
+            -DLLVM_DIR="$PWD/llvm-build/lib/cmake/llvm" \
+            -DClang_DIR="$PWD/llvm-build/lib/cmake/clang" \
             -DCLANGD_INCLUDE_DIRS="$PWD/llvm-project/clang-tools-extra/clangd" \
             -DPSEUDO_ENABLE_TESTS=ON
 
@@ -165,8 +194,8 @@ jobs:
         run: |
           PLUGIN_PATH=$(find build \( -name "*clangd_pseudo.dylib" -o -name "*clangd_pseudo.so" \) | head -n 1)
           echo "Found plugin at: $PLUGIN_PATH"
-          LLVM_PREFIX=$(brew --prefix llvm)
-          CLANGD_BIN="$LLVM_PREFIX/bin/clangd"
+          CLANGD_BIN="$PWD/llvm-build/bin/clangd"
+          chmod +x "$CLANGD_BIN" || true
           echo "Using clangd at: $CLANGD_BIN"
           python3 test_lsp.py "$PLUGIN_PATH" "$CLANGD_BIN"
 
