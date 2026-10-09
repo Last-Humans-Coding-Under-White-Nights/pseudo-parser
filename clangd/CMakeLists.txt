@@ -17,6 +17,25 @@ set(PSEUDO_MODULE_SOURCES
   pseudo/XRefs.cpp
 )
 
+if(WIN32 AND NOT TARGET clangd)
+  find_library(CLANGD_IMPORT_LIB NAMES clangd PATHS
+    ${LLVM_LIBRARY_DIRS}
+    "${LLVM_DIR}/../../.."
+    "${LLVM_DIR}/../.."
+    "${LLVM_DIR}/../../lib"
+    "${LLVM_DIR}/../../bin"
+    "${CMAKE_CURRENT_BINARY_DIR}/../llvm-build/lib"
+    "${CMAKE_CURRENT_BINARY_DIR}/../llvm-build/bin"
+  )
+  if(CLANGD_IMPORT_LIB)
+    message(STATUS "Found Clangd import library: ${CLANGD_IMPORT_LIB}")
+    add_library(clangd UNKNOWN IMPORTED)
+    set_target_properties(clangd PROPERTIES IMPORTED_IMPLIB "${CLANGD_IMPORT_LIB}" IMPORTED_LOCATION "${CLANGD_IMPORT_LIB}")
+  else()
+    message(WARNING "Clangd import library (clangd.lib) was not found! Plugin link might fail.")
+  endif()
+endif()
+
 if(COMMAND llvm_add_library)
   llvm_add_library(
     clangd_pseudo
@@ -51,11 +70,8 @@ elseif(UNIX)
     "-Wl,--unresolved-symbols=ignore-all"
   )
 elseif(WIN32)
-  if(NOT TARGET clangd)
-    find_library(CLANGD_IMPORT_LIB NAMES clangd PATHS ${LLVM_LIBRARY_DIRS} "${LLVM_DIR}/../../..")
-    if(CLANGD_IMPORT_LIB)
-      target_link_libraries(clangd_pseudo PRIVATE ${CLANGD_IMPORT_LIB})
-    endif()
+  if(TARGET clangd)
+    target_link_libraries(clangd_pseudo PRIVATE clangd)
   endif()
 endif()
 
