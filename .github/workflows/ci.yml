@@ -180,10 +180,13 @@ jobs:
       - name: Set up Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
 
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Checkout upstream llvm-project
         run: |
           git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party
+          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
           git -C llvm-project checkout
 
       - name: Cache built Clangd
@@ -194,7 +197,7 @@ jobs:
             llvm-build/bin
             llvm-build/lib
             llvm-build/include
-          key: clangd-win-plugins-v1
+          key: clangd-win-plugins-v2
           restore-keys: |
             clangd-win-plugins-
 
@@ -202,7 +205,6 @@ jobs:
         if: steps.cache-clangd.outputs.cache-hit != 'true'
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -B llvm-build -S llvm-project/llvm -G Ninja ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" ^
@@ -220,12 +222,11 @@ jobs:
             -DCLANG_ENABLE_ARCMT=OFF ^
             -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF ^
             -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
-          ninja -C llvm-build clangd clang llvm-config
+          ninja -C llvm-build clangd
 
       - name: Configure pseudo-parser
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -B build -S . -G Ninja ^
             -DCMAKE_BUILD_TYPE=Release ^
             -DCMAKE_PREFIX_PATH="%CD%/llvm-build" ^
@@ -237,7 +238,6 @@ jobs:
       - name: Build pseudo-parser feature module and tools
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           ninja -C build clangd_pseudo pseudo-tool
 
       - name: Test feature module LSP diagnostics with clangd (-load)
