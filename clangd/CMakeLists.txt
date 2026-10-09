@@ -45,6 +45,7 @@ if(COMMAND llvm_add_library)
     ${PSEUDO_MODULE_SOURCES}
     PLUGIN_TOOL clangd
     PARTIAL_SOURCES_INTENDED
+    DISABLE_LLVM_LINK_LLVM_DYLIB
   )
 else()
   add_library(

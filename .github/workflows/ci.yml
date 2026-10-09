@@ -189,9 +189,9 @@ jobs:
           git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
           git -C llvm-project checkout
 
-      - name: Cache built Clangd
+      - name: Restore Clangd cache
         id: cache-clangd
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: llvm-build
           key: clangd-win-plugins-v3
@@ -221,6 +221,13 @@ jobs:
             -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF ^
             -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
           ninja -C llvm-build clangd
+
+      - name: Save Clangd cache
+        if: steps.cache-clangd.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: llvm-build
+          key: clangd-win-plugins-v3
 
       - name: Configure pseudo-parser
         shell: cmd
