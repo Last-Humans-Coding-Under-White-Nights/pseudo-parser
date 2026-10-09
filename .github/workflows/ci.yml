@@ -24,9 +24,21 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 24 all
 
-      - name: Checkout upstream llvm-project headers (main)
+      - name: Checkout upstream llvm-project headers (matching clangd revision)
         run: |
-          git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+          CLANGD_BIN=$(which clangd-24 || which clangd)
+          echo "Inspecting version from $CLANGD_BIN:"
+          $CLANGD_BIN --version
+          COMMIT_HASH=$($CLANGD_BIN --version | grep -oE '[0-9a-f]{40}|[0-9a-f]{12}' | head -n 1 || true)
+          echo "Matching LLVM revision: $COMMIT_HASH"
+
+          git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git llvm-project
+          git -C llvm-project sparse-checkout set clang-tools-extra/clangd
+          if [ -n "$COMMIT_HASH" ]; then
+            git -C llvm-project checkout "$COMMIT_HASH" || git -C llvm-project checkout main
+          else
+            git -C llvm-project checkout main
+          fi
 
       - name: Configure pseudo-parser
         run: |
@@ -93,9 +105,22 @@ jobs:
         run: |
           brew install cmake ninja llvm
 
-      - name: Checkout upstream llvm-project headers (main)
+      - name: Checkout upstream llvm-project headers (matching clangd revision)
         run: |
-          git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+          LLVM_PREFIX=$(brew --prefix llvm)
+          CLANGD_BIN="$LLVM_PREFIX/bin/clangd"
+          echo "Inspecting version from $CLANGD_BIN:"
+          "$CLANGD_BIN" --version
+          COMMIT_HASH=$("$CLANGD_BIN" --version | grep -oE '[0-9a-f]{40}|[0-9a-f]{12}' | head -n 1 || true)
+          echo "Matching LLVM revision: $COMMIT_HASH"
+
+          git clone --filter=blob:none --no-checkout https://github.com/llvm/llvm-project.git llvm-project
+          git -C llvm-project sparse-checkout set clang-tools-extra/clangd
+          if [ -n "$COMMIT_HASH" ]; then
+            git -C llvm-project checkout "$COMMIT_HASH" || git -C llvm-project checkout main
+          else
+            git -C llvm-project checkout main
+          fi
 
       - name: Configure pseudo-parser
         run: |
