@@ -4,6 +4,9 @@ import os
 import json
 import subprocess
 import time
+import pathlib
+import queue
+import threading
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -16,21 +19,36 @@ def send_rpc(p, obj):
     p.stdin.write((header + msg).encode("utf-8"))
     p.stdin.flush()
 
-def read_rpc(p):
-    line = p.stdout.readline().decode("utf-8", errors="replace")
-    if not line:
+def start_rpc_reader(proc):
+    q = queue.Queue()
+    def reader():
+        while True:
+            line = proc.stdout.readline().decode("utf-8", errors="replace")
+            if not line:
+                break
+            length = 0
+            while line.strip() != "":
+                if line.startswith("Content-Length:"):
+                    length = int(line.split(":")[1].strip())
+                line = proc.stdout.readline().decode("utf-8", errors="replace")
+                if not line:
+                    break
+            if length > 0:
+                content = proc.stdout.read(length).decode("utf-8", errors="replace")
+                try:
+                    q.put(json.loads(content))
+                except Exception as e:
+                    print(f"Failed to parse JSON RPC message: {e}", file=sys.stderr)
+        q.put(None)
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+    return q
+
+def read_rpc(q, timeout=5):
+    try:
+        return q.get(timeout=timeout)
+    except queue.Empty:
         return None
-    length = 0
-    while line.strip() != "":
-        if line.startswith("Content-Length:"):
-            length = int(line.split(":")[1].strip())
-        line = p.stdout.readline().decode("utf-8", errors="replace")
-        if not line:
-            return None
-    if length == 0:
-        return None
-    content = p.stdout.read(length).decode("utf-8", errors="replace")
-    return json.loads(content)
 
 def main():
     if len(sys.argv) < 2:
@@ -53,30 +71,28 @@ def main():
     env["PATH"] = clangd_dir + os.pathsep + env.get("PATH", "")
 
     print(f"Testing clangd ({clangd_bin}) with plugin ({plugin_path})...")
+    # Inherit stderr so verbose logs stream directly to console without pipe buffer deadlocks
     proc = subprocess.Popen([
         clangd_bin,
         "-enable-config=0",
         "-log=verbose",
         f"-load={plugin_path}"
-    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr, env=env)
+
+    msg_queue = start_rpc_reader(proc)
 
     # 1. Initialize
     send_rpc(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}})
-    init_resp = read_rpc(proc)
+    init_resp = read_rpc(msg_queue, timeout=10)
     if not init_resp:
         proc.poll()
-        stdout_rem = proc.stdout.read().decode("utf-8", errors="replace")
-        stderr_rem = proc.stderr.read().decode("utf-8", errors="replace")
-        print(f"ERROR: clangd failed to initialize. Exit code: {proc.returncode}")
-        print(f"clangd stdout:\n{stdout_rem}")
-        print(f"clangd stderr:\n{stderr_rem}")
+        print(f"ERROR: clangd failed to initialize within timeout. Exit code: {proc.returncode}")
     assert init_resp and init_resp.get("id") == 1, f"Initialize failed: {init_resp}"
     send_rpc(proc, {"jsonrpc": "2.0", "method": "initialized", "params": {}})
     print("[OK] Clangd initialized with pseudo-parser module")
 
     # 2. Test syntax error diagnostics on didOpen
-    test1_path = os.path.abspath("test1.cpp").replace("\\", "/")
-    test1_uri = f"file:///{test1_path.lstrip('/')}"
+    test1_uri = pathlib.Path(os.path.abspath("test1.cpp")).as_uri()
     test1_code = "int f() {} {}\n"
     send_rpc(proc, {
         "jsonrpc": "2.0",
@@ -94,9 +110,9 @@ def main():
     t0 = time.time()
     diags1 = []
     while time.time() - t0 < 5:
-        msg = read_rpc(proc)
+        msg = read_rpc(msg_queue, timeout=1)
         if not msg:
-            break
+            continue
         if msg.get("method") == "textDocument/publishDiagnostics":
             diags1.extend(msg.get("params", {}).get("diagnostics", []))
             if any("syntax error" in d.get("message", "") for d in diags1):
@@ -107,8 +123,7 @@ def main():
     assert any("syntax error" in d.get("message", "") for d in diags1), "Expected syntax error diagnostic"
 
     # 3. Test preprocessor recovery diagnostics on didOpen
-    test2_path = os.path.abspath("test2.cpp").replace("\\", "/")
-    test2_uri = f"file:///{test2_path.lstrip('/')}"
+    test2_uri = pathlib.Path(os.path.abspath("test2.cpp")).as_uri()
     test2_code = "#ifdef X\nint f() {\n#elif Y\nint g()\n#else\nint ff(*\n#endif\n}\n"
     send_rpc(proc, {
         "jsonrpc": "2.0",
@@ -126,9 +141,9 @@ def main():
     t0 = time.time()
     diags2 = []
     while time.time() - t0 < 5:
-        msg = read_rpc(proc)
+        msg = read_rpc(msg_queue, timeout=1)
         if not msg:
-            break
+            continue
         if msg.get("method") == "textDocument/publishDiagnostics":
             diags2.extend(msg.get("params", {}).get("diagnostics", []))
             if len(diags2) > 0:
@@ -140,7 +155,7 @@ def main():
 
     # 4. Shutdown
     send_rpc(proc, {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": {}})
-    read_rpc(proc)
+    read_rpc(msg_queue, timeout=5)
     send_rpc(proc, {"jsonrpc": "2.0", "method": "exit", "params": {}})
     proc.wait(timeout=5)
     print(f"[OK] Clangd cleanly terminated with exit code {proc.returncode}")
