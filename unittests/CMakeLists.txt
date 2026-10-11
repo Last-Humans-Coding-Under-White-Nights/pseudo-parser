@@ -2,10 +2,8 @@ set(LLVM_LINK_COMPONENTS
   Support
 )
 
-if(NOT TARGET LLVMTestingSupport)
-  message(STATUS "LLVMTestingSupport target not found in LLVM installation. Skipping unittests.")
-  return()
-endif()
+include(LLVMTestingLibs)
+pseudo_require_llvm_testing_libs()
 
 add_custom_target(ClangPseudoUnitTests)
 set_target_properties(ClangPseudoUnitTests PROPERTIES FOLDER "Tests")
@@ -21,12 +19,6 @@ add_unittest(ClangPseudoUnitTests ClangPseudoTests
   TokenTest.cpp
 )
 
-clang_target_link_libraries(ClangPseudoTests
-  PRIVATE
-  clangBasic
-  clangLex
-)
-
 target_link_libraries(ClangPseudoTests
   PRIVATE
   Pseudo
@@ -36,6 +28,15 @@ target_link_libraries(ClangPseudoTests
   LLVMTestingSupport
 )
 
-if(CLANGD_INCLUDE_DIRS AND TARGET clangDaemon)
+# The clang libraries must follow the Pseudo libraries on the link line:
+# libPseudo.a uses clang::Lexer, and GNU ld resolves static archives in a
+# single pass (see tool/CMakeLists.txt for the same ordering).
+clang_target_link_libraries(ClangPseudoTests
+  PRIVATE
+  clangBasic
+  clangLex
+)
+
+if(CLANGD_INCLUDE_DIRS)
   add_subdirectory(clangd)
 endif()

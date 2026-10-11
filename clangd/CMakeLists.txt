@@ -38,10 +38,40 @@ if(WIN32 AND NOT TARGET clangd)
   endif()
 endif()
 
+# The module sources are compiled once into an object library that is shared
+# by the loadable plugin and by PseudoModuleTests, which links the same
+# objects into a test executable.
+add_library(obj.clangd_pseudo OBJECT ${PSEUDO_MODULE_SOURCES})
+
+if(COMMAND llvm_update_compile_flags)
+  llvm_update_compile_flags(obj.clangd_pseudo)
+endif()
+
+if(MSVC)
+  target_compile_options(obj.clangd_pseudo PRIVATE /GR-)
+else()
+  target_compile_options(obj.clangd_pseudo PRIVATE -fno-rtti)
+endif()
+
+target_include_directories(obj.clangd_pseudo PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CLANGD_INCLUDE_DIRS}"
+  "${CLANGD_INCLUDE_DIRS}/../include-cleaner/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../include"
+  "${CMAKE_BINARY_DIR}/include"
+)
+
+target_link_libraries(obj.clangd_pseudo
+  PUBLIC
+  Pseudo
+  PseudoCXX
+  PseudoGrammar
+)
+
 add_library(
   clangd_pseudo
   MODULE
-  ${PSEUDO_MODULE_SOURCES}
+  PluginSymbols.cpp
 )
 
 if(COMMAND llvm_update_compile_flags)
@@ -53,14 +83,6 @@ if(MSVC)
 else()
   target_compile_options(clangd_pseudo PRIVATE -fno-rtti)
 endif()
-
-target_include_directories(clangd_pseudo PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}"
-  "${CLANGD_INCLUDE_DIRS}"
-  "${CLANGD_INCLUDE_DIRS}/../include-cleaner/include"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../include"
-  "${CMAKE_BINARY_DIR}/include"
-)
 
 if(APPLE)
   set_target_properties(clangd_pseudo PROPERTIES SUFFIX ".dylib")
@@ -77,9 +99,7 @@ endif()
 
 target_link_libraries(clangd_pseudo
   PRIVATE
-  Pseudo
-  PseudoCXX
-  PseudoGrammar
+  obj.clangd_pseudo
 )
 
 if(WIN32)

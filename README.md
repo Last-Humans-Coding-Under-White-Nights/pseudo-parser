@@ -89,12 +89,40 @@ cmake -B build -G Ninja \
   -DCLANGD_INCLUDE_DIRS=/path/to/llvm-project/clang-tools-extra/clangd \
   -DPSEUDO_ENABLE_TESTS=ON
 
-# 3. Build the dynamic feature module, CLI tool, and tests
-ninja -C build clangd_pseudo clang-pseudo ClangPseudoTests
+# 3. Build the dynamic feature module and the CLI tool
+ninja -C build clangd_pseudo pseudo-tool
 
-# 4. Run tests
-./build/unittests/ClangPseudoTests
+# 4. Build and run every test: lit regression tests, ClangPseudoTests and
+#    PseudoModuleTests (the gtest binaries run through the lit shim in test/Unit)
+ninja -C build check-clang-pseudo
 ```
+
+### Test dependencies
+
+The tests need gtest, LLVM's testing libraries, `lit`, `FileCheck`, `not`,
+`count`, and clangd's test scaffolding. Installed LLVM packages do not ship
+most of these, so the build compiles them from an `llvm-project` source tree
+that matches the LLVM you build against. That tree is found automatically
+when `CLANGD_INCLUDE_DIRS` points inside one (as in the example above);
+otherwise pass `-DPSEUDO_LLVM_SOURCE_DIR=/path/to/llvm-project`. `FileCheck`,
+`not` and `count` are taken from the LLVM `bin/` directory, and the fuzzer
+links `LLVMFuzzerCLI`, so build them in your LLVM tree if they are missing
+(`ninja -C llvm-build FileCheck not count LLVMFuzzerCLI`).
+
+`PseudoModuleTests` additionally needs the `clangDaemon` library, which an
+LLVM build tree that built `clangd` exports, and clangd's test scaffolding
+from `clang-tools-extra/clangd/unittests`. When either is missing, that one
+target is skipped with a status message and the other tests still build.
+
+`PSEUDO_ENABLE_TESTS` defaults to ON when these dependencies are found and
+to OFF otherwise, so a plain configure always builds the plugin and the tool.
+With tests ON, a missing dependency is a configure error rather than a
+silent skip.
+
+Optional targets: `-DPSEUDO_ENABLE_FUZZER=ON` builds `clang-pseudo-fuzzer`
+without the tests (the lit suite always builds it);
+`-DPSEUDO_ENABLE_BENCHMARKS=ON` builds `ClangPseudoBenchmark` and requires
+LLVM's `benchmark` target (`LLVM_INCLUDE_BENCHMARKS=ON`).
 
 ---
 
@@ -107,7 +135,11 @@ pseudo-parser/
 ├── gen/                  # clang-pseudo-gen code generator
 ├── tool/                 # Standalone clang-pseudo CLI tool and HTML forest browser
 ├── clangd/               # Clangd FeatureModule implementation (PseudoModule)
-├── unittests/            # Unit test suite
+├── unittests/            # gtest suites (core parser and PseudoModule)
+├── test/                 # lit regression tests
+├── fuzzer/               # clang-pseudo-fuzzer
+├── benchmarks/           # Parser benchmark (opt-in)
+├── cmake/                # Build helpers (test dependency fallback)
 ├── docs/                 # Design documents and grammar disambiguation notes
 └── .github/workflows/    # CI pipeline for Linux and macOS
 ```
