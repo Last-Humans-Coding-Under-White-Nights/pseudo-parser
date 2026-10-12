@@ -34,16 +34,23 @@ jobs:
           path: |
             llvm-build
             llvm-project
-          key: clangd-linux-x86_64-v1
+          key: clangd-linux-x86_64-v2
           restore-keys: |
             clangd-linux-x86_64-
 
+      # restore-keys can hand back a tree from an older cache key without an
+      # exact cache-hit; reuse it and let the build step update it incrementally.
       - name: Checkout upstream llvm-project
         if: steps.cache-clangd.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
-          git -C llvm-project checkout
+          if [ -d llvm-project/.git ]; then
+            echo "Reusing llvm-project restored from a previous cache"
+          else
+            git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+            git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
+            git -C llvm-project checkout
+          fi
 
       - name: Build Clangd from main
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -66,7 +73,7 @@ jobs:
             -DCLANG_ENABLE_ARCMT=OFF \
             -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF \
             -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
-          ninja -C llvm-build clangd
+          ninja -C llvm-build clangd FileCheck not count LLVMFuzzerCLI
 
       - name: Save Clangd cache
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -75,7 +82,12 @@ jobs:
           path: |
             llvm-build
             llvm-project
-          key: clangd-linux-x86_64-v1
+          key: clangd-linux-x86_64-v2
+
+      # No-op when the cached tree already has them; covers caches saved
+      # before these targets were part of the clangd build step.
+      - name: Build LLVM test utilities (FileCheck, not, count, FuzzerCLI)
+        run: ninja -C llvm-build FileCheck not count LLVMFuzzerCLI
 
       - name: Configure pseudo-parser
         run: |
@@ -88,17 +100,10 @@ jobs:
             -DPSEUDO_ENABLE_TESTS=ON
 
       - name: Build pseudo-parser feature module and tools
-        run: |
-          ninja -C build clangd_pseudo pseudo-tool
-          ninja -C build ClangPseudoTests || true
+        run: ninja -C build clangd_pseudo pseudo-tool
 
-      - name: Run unit tests (if available)
-        run: |
-          if [ -f ./build/unittests/ClangPseudoTests ]; then
-            ./build/unittests/ClangPseudoTests
-          else
-            echo "Skipping ClangPseudoTests (LLVMTestingSupport not in distribution package)"
-          fi
+      - name: Run unit and lit tests
+        run: ninja -C build ClangPseudoTests PseudoModuleTests check-clang-pseudo
 
       - name: Test loading feature module into clangd (-load) and LSP diagnostics
         shell: bash
@@ -158,16 +163,23 @@ jobs:
           path: |
             llvm-build
             llvm-project
-          key: clangd-macos-arm64-v1
+          key: clangd-macos-arm64-v2
           restore-keys: |
             clangd-macos-arm64-
 
+      # restore-keys can hand back a tree from an older cache key without an
+      # exact cache-hit; reuse it and let the build step update it incrementally.
       - name: Checkout upstream llvm-project
         if: steps.cache-clangd.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
-          git -C llvm-project checkout
+          if [ -d llvm-project/.git ]; then
+            echo "Reusing llvm-project restored from a previous cache"
+          else
+            git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+            git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
+            git -C llvm-project checkout
+          fi
 
       - name: Build Clangd from main
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -190,7 +202,7 @@ jobs:
             -DCLANG_ENABLE_ARCMT=OFF \
             -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF \
             -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
-          ninja -C llvm-build clangd
+          ninja -C llvm-build clangd FileCheck not count LLVMFuzzerCLI
 
       - name: Save Clangd cache
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -199,7 +211,12 @@ jobs:
           path: |
             llvm-build
             llvm-project
-          key: clangd-macos-arm64-v1
+          key: clangd-macos-arm64-v2
+
+      # No-op when the cached tree already has them; covers caches saved
+      # before these targets were part of the clangd build step.
+      - name: Build LLVM test utilities (FileCheck, not, count, FuzzerCLI)
+        run: ninja -C llvm-build FileCheck not count LLVMFuzzerCLI
 
       - name: Configure pseudo-parser
         run: |
@@ -212,17 +229,10 @@ jobs:
             -DPSEUDO_ENABLE_TESTS=ON
 
       - name: Build pseudo-parser feature module and tools
-        run: |
-          ninja -C build clangd_pseudo pseudo-tool
-          ninja -C build ClangPseudoTests || true
+        run: ninja -C build clangd_pseudo pseudo-tool
 
-      - name: Run unit tests (if available)
-        run: |
-          if [ -f ./build/unittests/ClangPseudoTests ]; then
-            ./build/unittests/ClangPseudoTests
-          else
-            echo "Skipping ClangPseudoTests (LLVMTestingSupport not in distribution package)"
-          fi
+      - name: Run unit and lit tests
+        run: ninja -C build ClangPseudoTests PseudoModuleTests check-clang-pseudo
 
       - name: Test loading feature module into clangd (-load) and LSP diagnostics
         shell: bash
@@ -288,16 +298,23 @@ jobs:
           path: |
             llvm-build
             llvm-project
-          key: clangd-windows-x86_64-v1
+          key: clangd-windows-x86_64-v2
           restore-keys: |
             clangd-windows-x86_64-
 
+      # restore-keys can hand back a tree from an older cache key without an
+      # exact cache-hit; reuse it and let the build step update it incrementally.
       - name: Checkout upstream llvm-project
         if: steps.cache-clangd.outputs.cache-hit != 'true'
+        shell: bash
         run: |
-          git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
-          git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
-          git -C llvm-project checkout
+          if [ -d llvm-project/.git ]; then
+            echo "Reusing llvm-project restored from a previous cache"
+          else
+            git clone --filter=blob:none --no-checkout --depth 1 https://github.com/llvm/llvm-project.git llvm-project
+            git -C llvm-project sparse-checkout set llvm clang clang-tools-extra cmake third-party libc
+            git -C llvm-project checkout
+          fi
 
       - name: Build Clangd with plugin symbol exports (LLVM_EXPORT_SYMBOLS_FOR_PLUGINS=ON)
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -322,7 +339,7 @@ jobs:
             -DCLANG_ENABLE_ARCMT=OFF ^
             -DCLANG_TOOL_CLANG_CHECK_BUILD=OFF ^
             -DCLANG_TOOL_CLANG_FORMAT_BUILD=OFF
-          ninja -C llvm-build clangd
+          ninja -C llvm-build clangd FileCheck not count LLVMFuzzerCLI
 
       - name: Save Clangd cache
         if: steps.cache-clangd.outputs.cache-hit != 'true'
@@ -331,7 +348,13 @@ jobs:
           path: |
             llvm-build
             llvm-project
-          key: clangd-windows-x86_64-v1
+          key: clangd-windows-x86_64-v2
+
+      # No-op when the cached tree already has them; covers caches saved
+      # before these targets were part of the clangd build step.
+      - name: Build LLVM test utilities (FileCheck, not, count, FuzzerCLI)
+        shell: cmd
+        run: ninja -C llvm-build FileCheck not count LLVMFuzzerCLI
 
       - name: Configure pseudo-parser
         shell: cmd
@@ -344,12 +367,16 @@ jobs:
             -DCLANGD_INCLUDE_DIRS="%CD%/llvm-project/clang-tools-extra/clangd" ^
             -DCMAKE_SHARED_LINKER_FLAGS="/FORCE:MULTIPLE" ^
             -DCMAKE_MODULE_LINKER_FLAGS="/FORCE:MULTIPLE" ^
-            -DPSEUDO_ENABLE_TESTS=OFF
+            -DPSEUDO_ENABLE_TESTS=ON
 
       - name: Build pseudo-parser feature module and tools
         shell: cmd
         run: |
           ninja -C build -v clangd_pseudo pseudo-tool
+
+      - name: Run unit and lit tests
+        shell: cmd
+        run: ninja -C build ClangPseudoTests PseudoModuleTests check-clang-pseudo
 
       - name: Test feature module LSP diagnostics with clangd (-load)
         shell: bash

@@ -1,7 +1,5 @@
 set(LLVM_LINK_COMPONENTS support)
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
 add_clang_tool(pseudo-tool
   ClangPseudo.cpp
   HTMLForest.cpp
