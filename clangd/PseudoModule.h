@@ -29,6 +29,7 @@
 #include "llvm/Support/VirtualFileSystem.h"
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -57,11 +58,16 @@ public:
   void onDocumentDidChange(const DidChangeTextDocumentParams &Params);
   void onDocumentDidClose(const DidCloseTextDocumentParams &Params);
 
-  void updateDraft(PathRef File, llvm::StringRef Contents,
-                   llvm::StringRef Version = "");
+  /// Stores \p Contents as the draft for \p File and returns its version,
+  /// which DraftStore assigns when the client did not send one.
+  std::optional<int64_t>
+  updateDraft(PathRef File, llvm::StringRef Contents,
+              std::optional<int64_t> Version = std::nullopt);
   void removeDraft(PathRef File);
   void publishDiagnosticsFor(PathRef File, llvm::StringRef Contents,
-                             llvm::StringRef Version = "");
+                             std::optional<int64_t> Version = std::nullopt);
+  void clearDiagnosticsFor(PathRef File,
+                           std::optional<int64_t> Version = std::nullopt);
 
   void setEnabled(bool E) { Enabled = E; }
   bool isEnabled() const { return Enabled; }
@@ -192,6 +198,9 @@ public:
   llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> getFS() const;
 
 private:
+  void sendDiagnostics(PathRef File, std::optional<int64_t> Version,
+                       std::vector<Diagnostic> Diags);
+
   void onCustomPseudoSymbols(const DocumentSymbolParams &Params,
                              Callback<std::vector<DocumentSymbol>> Reply);
 

@@ -24,6 +24,7 @@
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/TokenKinds.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Path.h"
@@ -174,21 +175,45 @@ PseudoModule::getAST(PathRef File, llvm::StringRef Code,
   return clangd::getAST(File, Code, R);
 }
 
+// LSP versions are integers, DraftStore treats them as opaque strings.
 static std::string encodeVersion(std::optional<int64_t> LSPVersion) {
   return LSPVersion ? std::to_string(*LSPVersion) : "";
 }
 
-void PseudoModule::updateDraft(PathRef File, llvm::StringRef Contents,
-                               llvm::StringRef Version) {
-  DraftMgr.addDraft(File, Version, Contents);
+static std::optional<int64_t> decodeVersion(llvm::StringRef Encoded) {
+  int64_t Result;
+  if (llvm::to_integer(Encoded, Result, 10))
+    return Result;
+  if (!Encoded.empty())
+    elog("unexpected non-numeric version {0}", Encoded);
+  return std::nullopt;
+}
+
+std::optional<int64_t> PseudoModule::updateDraft(PathRef File,
+                                                 llvm::StringRef Contents,
+                                                 std::optional<int64_t> Version) {
+  return decodeVersion(
+      DraftMgr.addDraft(File, encodeVersion(Version), Contents));
 }
 
 void PseudoModule::removeDraft(PathRef File) {
   DraftMgr.removeDraft(File);
 }
 
+void PseudoModule::sendDiagnostics(PathRef File, std::optional<int64_t> Version,
+                                   std::vector<Diagnostic> Diags) {
+  if (!PublishDiagnostics)
+    return;
+  PublishDiagnosticsParams Notification;
+  Notification.uri = URIForFile::canonicalize(File, /*TUPath=*/File);
+  Notification.diagnostics = std::move(Diags);
+  Notification.version = Version;
+  PublishDiagnostics(Notification);
+}
+
 void PseudoModule::publishDiagnosticsFor(PathRef File, llvm::StringRef Contents,
-                                         llvm::StringRef Version) {
+                                         std::optional<int64_t> Version) {
+  // Skip the parse when no client is listening.
   if (!PublishDiagnostics)
     return;
   auto Diags = getDiagnostics(File, Contents);
@@ -196,22 +221,18 @@ void PseudoModule::publishDiagnosticsFor(PathRef File, llvm::StringRef Contents,
     consumeError(Diags.takeError());
     return;
   }
-  PublishDiagnosticsParams Notification;
-  Notification.uri = URIForFile::canonicalize(File, /*TUPath=*/File);
-  Notification.diagnostics = std::move(*Diags);
-  if (!Version.empty()) {
-    int64_t V = 0;
-    if (!llvm::to_integer(Version, V))
-      Notification.version = V;
-  }
-  PublishDiagnostics(Notification);
+  sendDiagnostics(File, Version, std::move(*Diags));
+}
+
+void PseudoModule::clearDiagnosticsFor(PathRef File,
+                                       std::optional<int64_t> Version) {
+  sendDiagnostics(File, Version, {});
 }
 
 void PseudoModule::onDocumentDidOpen(const DidOpenTextDocumentParams &Params) {
   PathRef File = Params.textDocument.uri.file();
   const std::string &Contents = Params.textDocument.text;
-  std::string Version = encodeVersion(Params.textDocument.version);
-  DraftMgr.addDraft(File, Version, Contents);
+  auto Version = updateDraft(File, Contents, Params.textDocument.version);
   publishDiagnosticsFor(File, Contents, Version);
 }
 
@@ -226,26 +247,25 @@ void PseudoModule::onDocumentDidChange(
   std::string NewCode = *Draft->Contents;
   for (const auto &Change : Params.contentChanges) {
     if (auto Err = applyChange(NewCode, Change)) {
-      DraftMgr.removeDraft(File);
+      removeDraft(File);
       elog("Failed to update {0}: {1}", File, std::move(Err));
+      // Clear even if wantDiagnostics is false: without a draft, later
+      // changes are ignored and nothing would replace these diagnostics.
+      clearDiagnosticsFor(File, Params.textDocument.version);
       return;
     }
   }
-  std::string Version = encodeVersion(Params.textDocument.version);
-  DraftMgr.addDraft(File, Version, NewCode);
-  publishDiagnosticsFor(File, NewCode, Version);
+  auto Version = updateDraft(File, NewCode, Params.textDocument.version);
+  // forceRebuild needs no handling: every publish is a fresh parse.
+  if (Params.wantDiagnostics.value_or(true))
+    publishDiagnosticsFor(File, NewCode, Version);
 }
 
 void PseudoModule::onDocumentDidClose(
     const DidCloseTextDocumentParams &Params) {
   PathRef File = Params.textDocument.uri.file();
-  DraftMgr.removeDraft(File);
-  if (PublishDiagnostics) {
-    PublishDiagnosticsParams Notification;
-    Notification.uri = Params.textDocument.uri;
-    Notification.diagnostics = {};
-    PublishDiagnostics(Notification);
-  }
+  removeDraft(File);
+  clearDiagnosticsFor(File);
 }
 
 void PseudoModule::initializeLSP(LSPBinder &Bind,

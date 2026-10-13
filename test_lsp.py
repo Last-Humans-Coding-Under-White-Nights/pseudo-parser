@@ -50,6 +50,15 @@ def read_rpc(q, timeout=5):
     except queue.Empty:
         return None
 
+def next_publish(q, timeout=5):
+    """Returns the params of the next publishDiagnostics, or None on timeout."""
+    end = time.time() + timeout
+    while time.time() < end:
+        msg = read_rpc(q, timeout=max(0.1, end - time.time()))
+        if msg and msg.get("method") == "textDocument/publishDiagnostics":
+            return msg.get("params", {})
+    return None
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: test_lsp.py <path-to-clangd_pseudo-plugin> [path-to-clangd]")
@@ -109,18 +118,48 @@ def main():
 
     t0 = time.time()
     diags1 = []
-    while time.time() - t0 < 5:
-        msg = read_rpc(msg_queue, timeout=1)
-        if not msg:
-            continue
-        if msg.get("method") == "textDocument/publishDiagnostics":
-            diags1.extend(msg.get("params", {}).get("diagnostics", []))
-            if any("syntax error" in d.get("message", "") for d in diags1):
-                break
+    syntax_error_version1 = None
+    while (params := next_publish(msg_queue)) is not None:
+        diags = params.get("diagnostics", [])
+        diags1.extend(diags)
+        if any("syntax error" in d.get("message", "") for d in diags):
+            syntax_error_version1 = params.get("version")
+            break
     print(f"[OK] Received {len(diags1)} diagnostics for test1 in {time.time()-t0:.3f}s:")
     for d in diags1:
         print(f"   - {d.get('range')}: {d.get('message')}")
     assert any("syntax error" in d.get("message", "") for d in diags1), "Expected syntax error diagnostic"
+    assert syntax_error_version1 == 1, \
+        f"Expected syntax error diagnostics published for version 1, got {syntax_error_version1}"
+
+    # 2b. Diagnostics follow the document version across didChange
+    def change_test1(version, **extra):
+        text_document = {"uri": test1_uri}
+        if version is not None:
+            text_document["version"] = version
+        send_rpc(proc, {
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": {
+                "textDocument": text_document,
+                "contentChanges": [{"text": test1_code}],
+                **extra
+            }
+        })
+
+    change_test1(2)
+    published = next_publish(msg_queue)
+    assert published and published.get("version") == 2, \
+        f"Expected diagnostics for version 2 after didChange, got {published}"
+    print("[OK] didChange published diagnostics for version 2")
+
+    # Sent back to back: a publish for version 3 would arrive first.
+    change_test1(3, wantDiagnostics=False)
+    change_test1(None)
+    published = next_publish(msg_queue)
+    assert published and published.get("version") == 4, \
+        f"Expected wantDiagnostics=false to skip version 3 and a synthesized version 4, got {published}"
+    print("[OK] wantDiagnostics=false skipped publishing; omitted version synthesized as 4")
 
     # 3. Test preprocessor recovery diagnostics on didOpen
     test2_uri = pathlib.Path(os.path.abspath("test2.cpp")).as_uri()
@@ -140,14 +179,10 @@ def main():
 
     t0 = time.time()
     diags2 = []
-    while time.time() - t0 < 5:
-        msg = read_rpc(msg_queue, timeout=1)
-        if not msg:
-            continue
-        if msg.get("method") == "textDocument/publishDiagnostics":
-            diags2.extend(msg.get("params", {}).get("diagnostics", []))
-            if len(diags2) > 0:
-                break
+    while (params := next_publish(msg_queue)) is not None:
+        diags2.extend(params.get("diagnostics", []))
+        if diags2:
+            break
     print(f"[OK] Received {len(diags2)} diagnostics for test2 in {time.time()-t0:.3f}s:")
     for d in diags2:
         print(f"   - {d.get('range')}: {d.get('message')}")
