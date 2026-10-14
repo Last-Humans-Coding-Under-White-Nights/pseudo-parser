@@ -3933,6 +3933,139 @@ TEST(PseudoModuleTest, DocumentDraftLifecycleAndDiagnostics) {
   EXPECT_EQ(Mod.getDocument(File), "");
 }
 
+class RecordingOutgoing : public LSPBinder::RawOutgoing {
+public:
+  void callMethod(llvm::StringRef Method, llvm::json::Value Params,
+                  Callback<llvm::json::Value> Reply) override {
+    Reply(llvm::make_error<LSPError>("unexpected call",
+                                     ErrorCode::InternalError));
+  }
+  void notify(llvm::StringRef Method, llvm::json::Value Params) override {
+    Notifications.emplace_back(Method.str(), std::move(Params));
+  }
+
+  std::vector<std::pair<std::string, llvm::json::Value>> Notifications;
+};
+
+class PseudoModuleLSPTest : public ::testing::Test {
+protected:
+  PseudoModuleLSPTest() : Bind(Handlers, Out) {
+    Mod.setPseudoOnly(true);
+    llvm::json::Object ServerCaps;
+    Mod.initializeLSP(Bind, llvm::json::Object{}, ServerCaps);
+  }
+
+  void open(llvm::StringRef Code, std::optional<int64_t> Version) {
+    DidOpenTextDocumentParams Params;
+    Params.textDocument.uri = URI;
+    Params.textDocument.version = Version;
+    Params.textDocument.text = Code.str();
+    Mod.onDocumentDidOpen(Params);
+  }
+
+  void change(TextDocumentContentChangeEvent Change,
+              std::optional<int64_t> Version,
+              std::optional<bool> WantDiagnostics = std::nullopt) {
+    DidChangeTextDocumentParams Params;
+    Params.textDocument.uri = URI;
+    Params.textDocument.version = Version;
+    Params.contentChanges.push_back(std::move(Change));
+    Params.wantDiagnostics = WantDiagnostics;
+    Mod.onDocumentDidChange(Params);
+  }
+
+  void replaceAll(llvm::StringRef Code, std::optional<int64_t> Version,
+                  std::optional<bool> WantDiagnostics = std::nullopt) {
+    TextDocumentContentChangeEvent Change;
+    Change.text = Code.str();
+    change(std::move(Change), Version, WantDiagnostics);
+  }
+
+  void close() {
+    DidCloseTextDocumentParams Params;
+    Params.textDocument.uri = URI;
+    Mod.onDocumentDidClose(Params);
+  }
+
+  std::vector<llvm::json::Object> published() const {
+    std::vector<llvm::json::Object> Result;
+    for (const auto &[Method, Params] : Out.Notifications)
+      if (Method == "textDocument/publishDiagnostics")
+        Result.push_back(*Params.getAsObject());
+    return Result;
+  }
+
+  std::vector<std::optional<int64_t>> publishedVersions() const {
+    std::vector<std::optional<int64_t>> Versions;
+    for (const auto &Obj : published())
+      Versions.push_back(Obj.getInteger("version"));
+    return Versions;
+  }
+
+  static size_t diagnosticCount(const llvm::json::Object &Obj) {
+    const auto *Diags = Obj.getArray("diagnostics");
+    return Diags ? Diags->size() : 0;
+  }
+
+  // Mod is declared last so it is destroyed before the binder and recorder
+  // its publishDiagnostics callback refers to.
+  LSPBinder::RawHandlers Handlers;
+  RecordingOutgoing Out;
+  LSPBinder Bind;
+  PseudoModule Mod;
+  std::string File = testPath("versioned.cpp");
+  URIForFile URI = URIForFile::canonicalize(File, File);
+};
+
+TEST_F(PseudoModuleLSPTest, PublishDiagnosticsCarriesDocumentVersion) {
+  open("int a = 1;", 1);
+  replaceAll("int a = 2;", 7);
+  close();
+  // Clearing diagnostics on close is not tied to any text state.
+  EXPECT_THAT(publishedVersions(), ElementsAre(1, 7, std::nullopt));
+}
+
+TEST_F(PseudoModuleLSPTest, PublishDiagnosticsUsesDraftVersionWhenUnset) {
+  // Versions are optional in clangd; DraftStore assigns 0, 1, ... instead.
+  open("int a = 1;", std::nullopt);
+  replaceAll("int a = 2;", std::nullopt);
+  EXPECT_THAT(publishedVersions(), ElementsAre(0, 1));
+}
+
+TEST_F(PseudoModuleLSPTest, FailedChangeClearsDiagnostics) {
+  open("int f() {} {}\n", 1);
+  TextDocumentContentChangeEvent Bad;
+  Bad.range = Range{Position{42, 0}, Position{42, 1}};
+  Bad.text = "x";
+  change(std::move(Bad), 2);
+
+  auto Published = published();
+  ASSERT_EQ(Published.size(), 2u);
+  EXPECT_GT(diagnosticCount(Published[0]), 0u);
+  EXPECT_EQ(diagnosticCount(Published[1]), 0u);
+  // The clear is tied to the text state of the rejected edit.
+  EXPECT_EQ(Published[1].getInteger("version"), 2);
+}
+
+TEST_F(PseudoModuleLSPTest, FailedChangeClearsDiagnosticsDespiteWantDiagnostics) {
+  open("int f() {} {}\n", 1);
+  TextDocumentContentChangeEvent Bad;
+  Bad.range = Range{Position{42, 0}, Position{42, 1}};
+  Bad.text = "x";
+  change(std::move(Bad), 2, /*WantDiagnostics=*/false);
+
+  auto Published = published();
+  ASSERT_EQ(Published.size(), 2u);
+  EXPECT_EQ(diagnosticCount(Published[1]), 0u);
+}
+
+TEST_F(PseudoModuleLSPTest, WantDiagnosticsFalseSuppressesPublish) {
+  open("int a = 1;", 1);
+  replaceAll("int a = 2;", 2, /*WantDiagnostics=*/false);
+  replaceAll("int a = 3;", 3, /*WantDiagnostics=*/true);
+  EXPECT_THAT(publishedVersions(), ElementsAre(1, 3));
+}
+
 TEST(PseudoModuleTest, DiagnosticsConditionalBranchMissingBrace) {
   PseudoModule Mod;
   llvm::StringRef Code = "#ifdef X\nvoid f(){\n#else\nvoid g()\n#endif\n}\n";

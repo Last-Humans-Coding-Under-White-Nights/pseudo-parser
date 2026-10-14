@@ -61,7 +61,7 @@ clangd -enable-config=0 -check=file.cpp -load=/path/to/libclangd_pseudo.so
 1. Upstream `clangd` (on `main`) supports loading dynamic plugins via `-load`.
 2. When loaded, `libclangd_pseudo` registers itself into `clangd::FeatureModuleRegistry`.
 3. Upon LSP client initialization, the module intercepts document opening (`textDocument/didOpen`) and edits (`textDocument/didChange`).
-4. It parses the code with the C++ GLR pseudo-parser and publishes immediate syntax, bracket, and preprocessor diagnostics via `textDocument/publishDiagnostics`.
+4. It parses the code with the C++ GLR pseudo-parser and publishes immediate syntax, bracket, and preprocessor diagnostics via `textDocument/publishDiagnostics`. Each notification carries the document version it was computed for, so clients can drop stale results; a `didChange` with clangd's `wantDiagnostics: false` extension skips publishing.
 
 ---
 
